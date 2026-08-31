@@ -31,7 +31,7 @@ from src.ui.sample_table_model import SampleTableModel
 from src.ui.sample_table_view import SampleTableView
 from src.ui.facet_filter_widget import FacetFilterWidget
 from src.ui.waveform_widget import WaveformWidget
-from src.ui.workers import ImportWorker, RescanWorker
+from src.ui.workers import ImportWorker, RescanWorker, ConsolidateDuplicatesWorker
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
 
         self._active_worker: Optional[ImportWorker] = None
         self._rescan_worker: Optional[RescanWorker] = None
+        self._consolidate_worker: Optional[ConsolidateDuplicatesWorker] = None
 
         self.setWindowTitle("BandLab Sound Sample Manager")
         self.resize(1100, 720)
@@ -200,6 +201,10 @@ class MainWindow(QMainWindow):
         analyzer_act.triggered.connect(self.action_open_analyzer_dialog)
         tools_menu.addAction(analyzer_act)
 
+        consolidate_act = QAction("🧹 &Consolidate Duplicate Samples (Latest Wins)...", self)
+        consolidate_act.triggered.connect(self.action_consolidate_duplicates)
+        tools_menu.addAction(consolidate_act)
+
         backup_act = QAction("💾 &Backup Database Snapshot...", self)
         backup_act.triggered.connect(self.action_backup_database)
         tools_menu.addAction(backup_act)
@@ -219,6 +224,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(rescan_act)
         toolbar.addSeparator()
         toolbar.addAction(analyzer_act)
+        toolbar.addAction(consolidate_act)
 
     def _setup_signals(self):
         # Facet filter changes
@@ -245,9 +251,8 @@ class MainWindow(QMainWindow):
         self.table_model.set_samples(samples)
 
         # Populate facet values from database
-        all_samples = self.repo.search_samples(SearchFilter())
-        insts = list({s.instrument for s in all_samples if s.instrument})
-        genres = list({s.genre for s in all_samples if s.genre})
+        insts = self.repo.get_all_instruments()
+        genres = self.repo.get_all_genres()
         self.facet_widget.update_facets(insts, genres)
 
         total = self.repo.get_total_count()
@@ -442,6 +447,52 @@ class MainWindow(QMainWindow):
             return
 
         self._on_analyze_samples_requested(selected)
+
+    def action_consolidate_duplicates(self):
+        """Scans for duplicate files (_1, _2...) and consolidates them to the latest file."""
+        duplicate_groups = self.repo.find_duplicate_groups()
+        if not duplicate_groups:
+            QMessageBox.information(
+                self,
+                "No Duplicates Found",
+                "重複している音源ファイルは見つかりませんでした。\nライブラリは正常に整理されています。",
+            )
+            return
+
+        total_obsolete = sum(len(g["obsolete_samples"]) for g in duplicate_groups)
+        reply = QMessageBox.question(
+            self,
+            "Consolidate Duplicate Samples",
+            f"{len(duplicate_groups)} 組の重複音源グループ（計 {total_obsolete} 個の古い重複ファイル）が見つかりました。\n\n"
+            f"最も更新日時が新しいファイルを残し、古い重複ファイルを Windows のごみ箱へ安全に移動して整理しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.status_progress.setVisible(True)
+            self.status_progress.setRange(0, len(duplicate_groups))
+            self.status_label.setText("重複音源を最新ファイルへ統合中...")
+
+            self._consolidate_worker = ConsolidateDuplicatesWorker(self.repo, self.file_mgr, parent=self)
+            self._consolidate_worker.progress.connect(self._on_consolidate_progress)
+            self._consolidate_worker.finished.connect(self._on_consolidate_finished)
+            self._consolidate_worker.error.connect(self._on_import_error)
+            self._consolidate_worker.start()
+
+    def _on_consolidate_progress(self, current: int, total: int, desc: str):
+        self.status_progress.setRange(0, total)
+        self.status_progress.setValue(current)
+        self.status_label.setText(f"統合処理中 ({current}/{total}): {desc}")
+
+    def _on_consolidate_finished(self, groups_consolidated: int, files_cleaned: int):
+        self.status_progress.setVisible(False)
+        self._refresh_data()
+        QMessageBox.information(
+            self,
+            "Consolidation Complete",
+            f"重複ファイルの統合が完了しました！\n\n"
+            f"• 統合されたグループ: {groups_consolidated} 組\n"
+            f"• 整理された古いファイル: {files_cleaned} 個（ごみ箱へ移動済み）",
+        )
 
     def action_backup_database(self):
         """Takes an immediate snapshot backup of the database."""

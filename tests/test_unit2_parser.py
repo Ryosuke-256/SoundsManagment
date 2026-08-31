@@ -71,6 +71,27 @@ class TestUnit2Parser(unittest.TestCase):
         self.assertEqual(metadata.key_scale, "minor")
         self.assertEqual(metadata.instrument, "synth")
 
+    def test_multi_instrument_parsing(self):
+        """Verify that multiple instruments in a single filename are all extracted."""
+        filename = "03_guitar_bass_drums_174BPM.wav"
+        metadata = FilenameParser.parse_filename(filename)
+
+        self.assertEqual(metadata.instruments, ["guitar", "bass", "drums"])
+        self.assertEqual(metadata.instrument, "guitar, bass, drums")
+        self.assertEqual(metadata.bpm, 174.0)
+
+    def test_beats_instrument_parsing(self):
+        """Verify that 'beat' and 'beats' are classified as 'beats' instrument."""
+        fn1 = "hiphop_beat_90bpm.wav"
+        meta1 = FilenameParser.parse_filename(fn1)
+        self.assertEqual(meta1.instrument, "beats")
+        self.assertIn("beats", meta1.instruments)
+
+        fn2 = "trap_beats_140bpm.wav"
+        meta2 = FilenameParser.parse_filename(fn2)
+        self.assertEqual(meta2.instrument, "beats")
+        self.assertIn("beats", meta2.instruments)
+
     def test_parser_speed_benchmark(self):
         """Verify that parsing 1,000 filenames takes < 50ms."""
         import time

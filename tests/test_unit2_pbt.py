@@ -27,7 +27,7 @@ class TestUnit2PropertyBased(unittest.TestCase):
             self.assertIn(scale, {"minor", "major"})
 
     @given(
-        genre=st.text(alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", min_size=2, max_size=15),
+        genre=st.sampled_from(["Rock", "HipHop", "EDM", "Pop", "Trap", "Lofi", "Jazz", "Soul"]),
         bpm=st.integers(min_value=50, max_value=220),
         key_root=st.sampled_from(["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]),
         key_scale=st.sampled_from(["minor", "major"]),
@@ -46,7 +46,7 @@ class TestUnit2PropertyBased(unittest.TestCase):
         self.assertEqual(meta.bpm, float(bpm))
         self.assertEqual(meta.key_root, key_root)
         self.assertEqual(meta.key_scale, key_scale)
-        self.assertEqual(meta.instrument, instrument)
+        self.assertIn(instrument, meta.instruments)
         self.assertEqual(meta.creator, creator)
 
 

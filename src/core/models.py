@@ -68,6 +68,14 @@ class SampleItem:
         )
 
 
+    @property
+    def instruments(self) -> List[str]:
+        """Returns list of individual instrument tags parsed from the instrument field."""
+        if not self.instrument or self.instrument == "Other":
+            return []
+        return [inst.strip() for inst in self.instrument.split(",") if inst.strip()]
+
+
 @dataclass
 class SearchFilter:
     """Filter criteria and sorting specifications for searching sound samples."""
@@ -81,6 +89,10 @@ class SearchFilter:
     bpm_max: Optional[float] = None
     creators: List[str] = field(default_factory=list)
     is_favorite_only: bool = False
+    only_unclassified_instrument: bool = False
+    only_unclassified_genre: bool = False
+    only_unknown_key: bool = False
+    only_unknown_bpm: bool = False
     sort_column: str = "file_name"
     sort_direction: str = "ASC"  # "ASC" | "DESC"
 

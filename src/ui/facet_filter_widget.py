@@ -21,7 +21,7 @@ from src.core.models import SearchFilter
 
 
 class FacetFilterWidget(QWidget):
-    """Sidebar widget providing faceted filter controls (Type, Instrument, Genre, Key, BPM)."""
+    """Sidebar widget providing compact faceted filter controls (Type, Key, BPM, Instrument, Genre)."""
 
     filter_changed = pyqtSignal(SearchFilter)
 
@@ -125,7 +125,7 @@ class FacetFilterWidget(QWidget):
         bpm_vbox.addLayout(bpm_h_layout)
         self.content_layout.addWidget(bpm_section)
 
-        # 4. Instrument Facet
+        # 4. Instrument Facet (Includes 'Other' in list)
         inst_section = QWidget()
         inst_vbox = QVBoxLayout(inst_section)
         inst_vbox.setContentsMargins(0, 0, 0, 0)
@@ -135,12 +135,12 @@ class FacetFilterWidget(QWidget):
 
         self.inst_list = QListWidget()
         self.inst_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.inst_list.setMaximumHeight(120)
+        self.inst_list.setMaximumHeight(130)
         self.inst_list.itemSelectionChanged.connect(self._on_filter_control_changed)
         inst_vbox.addWidget(self.inst_list)
         self.content_layout.addWidget(inst_section)
 
-        # 5. Genre / Pack Facet
+        # 5. Genre / Pack Facet (Includes 'Other' in list)
         genre_section = QWidget()
         genre_vbox = QVBoxLayout(genre_section)
         genre_vbox.setContentsMargins(0, 0, 0, 0)
@@ -150,7 +150,7 @@ class FacetFilterWidget(QWidget):
 
         self.genre_list = QListWidget()
         self.genre_list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.genre_list.setMaximumHeight(120)
+        self.genre_list.setMaximumHeight(130)
         self.genre_list.itemSelectionChanged.connect(self._on_filter_control_changed)
         genre_vbox.addWidget(self.genre_list)
         self.content_layout.addWidget(genre_section)
@@ -311,26 +311,67 @@ class FacetFilterWidget(QWidget):
         self._emit_filter()
 
     def update_facets(self, instruments: List[str], genres: List[str]):
-        """Populates dynamic instrument and genre facet lists while preserving selections."""
+        """Populates dynamic instrument and genre facet lists while preserving selections and supporting 'Other'."""
         sel_insts = set(item.text() for item in self.inst_list.selectedItems())
         sel_genres = set(item.text() for item in self.genre_list.selectedItems())
 
+        # Expand comma-separated instruments into individual items
+        individual_insts = set()
+        has_other_inst = False
+        for inst_str in instruments:
+            if inst_str:
+                for part in inst_str.split(","):
+                    clean = part.strip()
+                    if clean:
+                        if clean == "Other":
+                            has_other_inst = True
+                        else:
+                            individual_insts.add(clean)
+
         self.inst_list.blockSignals(True)
         self.inst_list.clear()
-        for inst in sorted(set(instruments)):
-            if inst and inst != "Other":
-                item = QListWidgetItem(inst)
-                self.inst_list.addItem(item)
-                if inst in sel_insts:
-                    item.setSelected(True)
+
+        # Place known instruments in alphabetical order
+        for inst in sorted(individual_insts):
+            item = QListWidgetItem(inst)
+            self.inst_list.addItem(item)
+            if inst in sel_insts:
+                item.setSelected(True)
+
+        # Append 'Other' option at the end if present or by default
+        if has_other_inst or True:
+            other_item = QListWidgetItem("Other")
+            self.inst_list.addItem(other_item)
+            if "Other" in sel_insts:
+                other_item.setSelected(True)
+
         self.inst_list.blockSignals(False)
+
+        # Genres
+        genre_set = set()
+        has_other_genre = False
+        for gen in genres:
+            if gen:
+                clean = gen.strip()
+                if clean:
+                    if clean == "Other":
+                        has_other_genre = True
+                    else:
+                        genre_set.add(clean)
 
         self.genre_list.blockSignals(True)
         self.genre_list.clear()
-        for gen in sorted(set(genres)):
-            if gen and gen != "Other":
-                item = QListWidgetItem(gen)
-                self.genre_list.addItem(item)
-                if gen in sel_genres:
-                    item.setSelected(True)
+
+        for gen in sorted(genre_set):
+            item = QListWidgetItem(gen)
+            self.genre_list.addItem(item)
+            if gen in sel_genres:
+                item.setSelected(True)
+
+        if has_other_genre or True:
+            other_gen_item = QListWidgetItem("Other")
+            self.genre_list.addItem(other_gen_item)
+            if "Other" in sel_genres:
+                other_gen_item.setSelected(True)
+
         self.genre_list.blockSignals(False)

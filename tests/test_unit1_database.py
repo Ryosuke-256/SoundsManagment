@@ -183,6 +183,103 @@ class TestUnit1Database(unittest.TestCase):
         self.assertTrue(self.db_manager.restore_from_backup(oldest_backup))
         self.assertEqual(self.repository.get_total_count(), 1)
 
+    def test_multi_instrument_search_and_get_all(self):
+        """Verify that multi-instrument samples match individual instrument searches and split cleanly."""
+        sample = SampleItem(
+            file_path="C:/Sounds/combo.wav",
+            file_name="combo.wav",
+            sample_type="Loop",
+            instrument="guitar, bass, beats",
+            genre="Fusion",
+        )
+        self.repository.insert_sample(sample)
+
+        # Search by guitar
+        res_guitar = self.repository.search_samples(SearchFilter(instruments=["guitar"]))
+        self.assertEqual(len(res_guitar), 1)
+
+        # Search by beats
+        res_beats = self.repository.search_samples(SearchFilter(instruments=["beats"]))
+        self.assertEqual(len(res_beats), 1)
+
+        # Search by bass
+        res_bass = self.repository.search_samples(SearchFilter(instruments=["bass"]))
+        self.assertEqual(len(res_bass), 1)
+
+        # get_all_instruments splits into unique items
+        all_insts = self.repository.get_all_instruments()
+        self.assertIn("guitar", all_insts)
+        self.assertIn("bass", all_insts)
+        self.assertIn("beats", all_insts)
+
+    def test_unclassified_other_filtering(self):
+        """Verify filtering for unclassified instrument, genre, key, and bpm."""
+        sample_unclassified = SampleItem(
+            file_path="C:/Sounds/mystery.wav",
+            file_name="mystery.wav",
+            sample_type="Oneshot",
+            instrument="Other",
+            genre="Other",
+            bpm=None,
+            key_root=None,
+        )
+        sample_normal = SampleItem(
+            file_path="C:/Sounds/lead.wav",
+            file_name="lead.wav",
+            sample_type="Loop",
+            instrument="synth",
+            genre="Pop",
+            bpm=120.0,
+            key_root="C",
+        )
+        self.repository.insert_samples_batch([sample_unclassified, sample_normal])
+
+        # Filter unclassified instrument
+        res_inst_other = self.repository.search_samples(SearchFilter(only_unclassified_instrument=True))
+        self.assertEqual(len(res_inst_other), 1)
+        self.assertEqual(res_inst_other[0].file_name, "mystery.wav")
+
+        # Filter unknown BPM
+        res_bpm_unknown = self.repository.search_samples(SearchFilter(only_unknown_bpm=True))
+        self.assertEqual(len(res_bpm_unknown), 1)
+        self.assertEqual(res_bpm_unknown[0].file_name, "mystery.wav")
+
+    def test_upsert_sample_and_batch(self):
+        """Verify upserting inserts when new and updates when existing."""
+        sample = SampleItem(
+            file_path="C:/Sounds/lead.wav",
+            file_name="lead.wav",
+            sample_type="Loop",
+            bpm=120.0,
+        )
+        # 1. Insert
+        sid = self.repository.upsert_sample(sample)
+        self.assertEqual(self.repository.get_total_count(), 1)
+
+        # 2. Upsert same file_path with modified BPM
+        sample.bpm = 128.0
+        sid_updated = self.repository.upsert_sample(sample)
+        self.assertEqual(sid, sid_updated)
+        self.assertEqual(self.repository.get_total_count(), 1)
+        fetched = self.repository.get_sample_by_id(sid)
+        self.assertEqual(fetched.bpm, 128.0)
+
+    def test_find_duplicate_groups(self):
+        """Verify detection of duplicate groups with sequence patterns."""
+        s0 = SampleItem(file_path="C:/Sounds/Synth_Lead.wav", file_name="Synth_Lead.wav", sample_type="Loop")
+        s1 = SampleItem(file_path="C:/Sounds/Synth_Lead_1.wav", file_name="Synth_Lead_1.wav", sample_type="Loop")
+        s2 = SampleItem(file_path="C:/Sounds/Synth_Lead_2.wav", file_name="Synth_Lead_2.wav", sample_type="Loop")
+        s_single = SampleItem(file_path="C:/Sounds/Kick.wav", file_name="Kick.wav", sample_type="Oneshot")
+
+        self.repository.insert_samples_batch([s0, s1, s2, s_single])
+
+        groups = self.repository.find_duplicate_groups()
+        self.assertEqual(len(groups), 1)
+        group = groups[0]
+        self.assertEqual(group["canonical_name"], "Synth_Lead.wav")
+        self.assertEqual(len(group["all_samples"]), 3)
+        self.assertEqual(len(group["obsolete_samples"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

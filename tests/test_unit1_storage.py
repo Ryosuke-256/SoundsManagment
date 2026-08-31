@@ -68,36 +68,74 @@ class TestUnit1Storage(unittest.TestCase):
         )
         self.assertIn("Other", dest_other)
 
-    def test_duplicate_file_sequential_numbering(self):
-        """Verify that importing an existing file name appends incrementing sequential numbers (_1, _2...)."""
+    def test_overwrite_import_mode(self):
+        """Verify that importing an existing file name overwrites the target file when overwrite=True."""
         # First import
         dest1, name1, _, _ = self.file_manager.import_single_file(
             src_path=str(self.sample_file),
             sample_type="Loop",
             genre="Rock",
             instrument="guitar",
+            overwrite=True,
         )
         self.assertEqual(name1, "guitar_sample.wav")
 
-        # Second import (same target) -> should become guitar_sample_1.wav
+        # Second import -> should overwrite and keep guitar_sample.wav
         dest2, name2, _, _ = self.file_manager.import_single_file(
             src_path=str(self.sample_file),
             sample_type="Loop",
             genre="Rock",
             instrument="guitar",
+            overwrite=True,
         )
-        self.assertEqual(name2, "guitar_sample_1.wav")
+        self.assertEqual(name2, "guitar_sample.wav")
+        self.assertEqual(dest1, dest2)
         self.assertTrue(os.path.exists(dest2))
 
-        # Third import (same target) -> should become guitar_sample_2.wav
-        dest3, name3, _, _ = self.file_manager.import_single_file(
+    def test_duplicate_file_sequential_numbering_when_overwrite_disabled(self):
+        """Verify that importing with overwrite=False appends sequential numbers (_1, _2...)."""
+        dest1, name1, _, _ = self.file_manager.import_single_file(
             src_path=str(self.sample_file),
             sample_type="Loop",
             genre="Rock",
             instrument="guitar",
+            overwrite=False,
         )
-        self.assertEqual(name3, "guitar_sample_2.wav")
-        self.assertTrue(os.path.exists(dest3))
+        self.assertEqual(name1, "guitar_sample.wav")
+
+        dest2, name2, _, _ = self.file_manager.import_single_file(
+            src_path=str(self.sample_file),
+            sample_type="Loop",
+            genre="Rock",
+            instrument="guitar",
+            overwrite=False,
+        )
+        self.assertEqual(name2, "guitar_sample_1.wav")
+        self.assertTrue(os.path.exists(dest2))
+
+    def test_consolidate_file_group(self):
+        """Verify consolidation of duplicate files into a single canonical target."""
+        target_dir = self.config.library_dir / "Loop" / "TestPack"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        canon_file = target_dir / "sample.wav"
+        dup1_file = target_dir / "sample_1.wav"
+        dup2_file = target_dir / "sample_2.wav"
+
+        canon_file.write_bytes(b"OLD_ORIGINAL")
+        dup1_file.write_bytes(b"OLD_DUP1")
+        dup2_file.write_bytes(b"LATEST_CONTENT_V2")
+
+        res_path = self.file_manager.consolidate_file_group(
+            canonical_target_path=str(canon_file),
+            all_duplicate_paths=[str(canon_file), str(dup1_file), str(dup2_file)],
+            latest_file_path=str(dup2_file),
+        )
+
+        self.assertEqual(res_path, str(canon_file.resolve()))
+        self.assertTrue(canon_file.exists())
+        self.assertEqual(canon_file.read_bytes(), b"LATEST_CONTENT_V2")
+        self.assertFalse(dup1_file.exists())
+        self.assertFalse(dup2_file.exists())
 
     def test_safe_physical_deletion(self):
         """Verify physical file deletion using delete_physical_file."""

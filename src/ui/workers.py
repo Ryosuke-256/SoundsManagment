@@ -77,17 +77,16 @@ class ImportWorker(QThread):
                 # Parse metadata from filename
                 parsed = self.parser.parse_filename(file_p.name)
 
-                # Copy/Move file to managed hierarchy
+                # Copy/Move file to managed hierarchy with overwrite mode
                 final_path, final_name, file_size, file_hash = self.file_mgr.import_single_file(
                     src_path=str(file_p),
                     sample_type=parsed.sample_type,
                     genre=parsed.genre,
                     instrument=parsed.instrument,
                     move=not self.copy_mode,
+                    overwrite=True,
                 )
 
-                if final_name != file_p.name:
-                    summary.duplicate_renamed_count += 1
                 if parsed.sample_type == "Other" or parsed.instrument == "Other":
                     summary.other_classified_count += 1
 
@@ -117,15 +116,87 @@ class ImportWorker(QThread):
                 summary.errors_count += 1
                 summary.error_details.append(f"{file_p.name}: {str(e)}")
 
-        # Batch insert into repository
+        # Batch upsert into repository
         if imported_records:
             try:
-                self.repo.insert_samples_batch(imported_records)
+                self.repo.upsert_samples_batch(imported_records)
             except Exception as e:
                 self.error.emit(f"Failed to commit imported samples to database: {str(e)}")
                 return
 
         self.finished.emit(summary)
+
+
+class ConsolidateDuplicatesWorker(QThread):
+    """Background worker for detecting duplicate files and consolidating them to the latest file."""
+
+    progress = pyqtSignal(int, int, str)       # current, total, description
+    finished = pyqtSignal(int, int)            # groups_consolidated, files_cleaned
+    error = pyqtSignal(str)
+
+    def __init__(self, repo: SampleRepository, file_mgr: LibraryFileManager, parent=None):
+        super().__init__(parent)
+        self.repo = repo
+        self.file_mgr = file_mgr
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
+    def run(self):
+        try:
+            duplicate_groups = self.repo.find_duplicate_groups()
+            total_groups = len(duplicate_groups)
+
+            if total_groups == 0:
+                self.finished.emit(0, 0)
+                return
+
+            consolidated_count = 0
+            files_cleaned_count = 0
+
+            for idx, group in enumerate(duplicate_groups, start=1):
+                if self._is_cancelled:
+                    break
+
+                canonical_name = group["canonical_name"]
+                self.progress.emit(idx, total_groups, f"Consolidating: {canonical_name}")
+
+                canonical_path = group["canonical_path"]
+                all_paths = [s.file_path for s in group["all_samples"]]
+                latest_sample = group["latest_sample"]
+
+                # 1. Consolidate physical files
+                resolved_canon_path = self.file_mgr.consolidate_file_group(
+                    canonical_target_path=canonical_path,
+                    all_duplicate_paths=all_paths,
+                    latest_file_path=latest_sample.file_path,
+                )
+
+                # 2. Update DB: Delete obsolete records
+                obsolete_ids = [s.id for s in group["obsolete_samples"] if s.id]
+                if obsolete_ids:
+                    self.repo.delete_samples_batch(obsolete_ids)
+                    files_cleaned_count += len(obsolete_ids)
+
+                # 3. Update the kept record to canonical name/path & latest stats
+                latest_sample.file_path = resolved_canon_path
+                latest_sample.file_name = canonical_name
+                p = Path(resolved_canon_path)
+                if p.exists():
+                    latest_sample.file_size = p.stat().st_size
+                    latest_sample.file_hash = self.file_mgr.calculate_file_hash(resolved_canon_path)
+
+                if latest_sample.id:
+                    self.repo.update_sample(latest_sample)
+                else:
+                    self.repo.upsert_sample(latest_sample)
+                consolidated_count += 1
+
+            self.finished.emit(consolidated_count, files_cleaned_count)
+
+        except Exception as e:
+            self.error.emit(f"Error during duplicate consolidation: {str(e)}")
 
 
 class BatchAnalyzeWorker(QThread):

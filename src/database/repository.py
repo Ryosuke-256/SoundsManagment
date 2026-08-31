@@ -119,6 +119,98 @@ class SampleRepository:
                 transaction_conn.executemany(sql, params_list)
                 return len(samples)
 
+    def upsert_sample(self, sample: SampleItem, conn: Optional[sqlite3.Connection] = None) -> int:
+        """Inserts a sample or updates it if a record with the same file_path already exists."""
+        existing = self.get_sample_by_path(sample.file_path)
+        if existing and existing.id:
+            sample.id = existing.id
+            self.update_sample(sample)
+            return sample.id
+        else:
+            return self.insert_sample(sample, conn=conn)
+
+    def upsert_samples_batch(self, samples: List[SampleItem]) -> int:
+        """Upserts a batch of SampleItem records in a single transaction."""
+        if not samples:
+            return 0
+        with self.db_manager.transaction() as conn:
+            for s in samples:
+                self.upsert_sample(s, conn=conn)
+        return len(samples)
+
+    def get_all_samples(self) -> List[SampleItem]:
+        """Retrieves all sound sample records from the database."""
+        conn = self.db_manager.get_connection()
+        cursor = conn.execute("SELECT * FROM samples ORDER BY id ASC;")
+        rows = cursor.fetchall()
+        return [SampleItem.from_row(row) for row in rows]
+
+    def find_duplicate_groups(self) -> List[Dict[str, Any]]:
+        """Identifies groups of duplicate sound samples (e.g. sample.wav, sample_1.wav, sample_2.wav).
+        
+        Returns:
+            List[Dict[str, Any]]: List of duplicate group summaries with latest and obsolete records.
+        """
+        import re
+        import os
+        from pathlib import Path
+
+        all_samples = self.get_all_samples()
+        re_dup = re.compile(r'^(.*?)(?:_(\d+))?(\.[^.]+)$')
+
+        # Group by (parent_dir, base_canonical_filename)
+        groups_dict: Dict[Tuple[str, str], List[Tuple[int, SampleItem]]] = {}
+
+        for s in all_samples:
+            p = Path(s.file_path)
+            parent_dir = str(p.parent)
+            match = re_dup.match(p.name)
+            if match:
+                base_stem = match.group(1)
+                seq_num = int(match.group(2)) if match.group(2) else 0
+                ext = match.group(3)
+                canonical_name = f"{base_stem}{ext}"
+            else:
+                canonical_name = p.name
+                seq_num = 0
+
+            key = (parent_dir, canonical_name)
+            if key not in groups_dict:
+                groups_dict[key] = []
+            groups_dict[key].append((seq_num, s))
+
+        duplicate_groups: List[Dict[str, Any]] = []
+
+        for (parent_dir, canonical_name), items in groups_dict.items():
+            if len(items) > 1:
+                # Sort items by file modification time or sequence number (highest first)
+                def get_sort_key(item_tuple):
+                    seq, sample = item_tuple
+                    mtime = 0.0
+                    try:
+                        if os.path.exists(sample.file_path):
+                            mtime = os.path.getmtime(sample.file_path)
+                    except OSError:
+                        pass
+                    return (mtime, seq, sample.id or 0)
+
+                sorted_items = sorted(items, key=get_sort_key, reverse=True)
+                latest_sample = sorted_items[0][1]
+                obsolete_samples = [it[1] for it in sorted_items[1:]]
+
+                canonical_path = str(Path(parent_dir) / canonical_name)
+
+                duplicate_groups.append({
+                    "canonical_name": canonical_name,
+                    "canonical_path": canonical_path,
+                    "parent_dir": parent_dir,
+                    "latest_sample": latest_sample,
+                    "obsolete_samples": obsolete_samples,
+                    "all_samples": [it[1] for it in sorted_items],
+                })
+
+        return duplicate_groups
+
     def update_sample(self, sample: SampleItem) -> bool:
         """Updates metadata of an existing SampleItem record."""
         if sample.id is None:
@@ -214,17 +306,27 @@ class SampleRepository:
             conditions.append(f"sample_type IN ({placeholders})")
             params.extend(search_filter.sample_types)
 
-        # Instruments
+        # Instruments (Multi-instrument substring / token matching, supports Other)
         if search_filter.instruments:
-            placeholders = ",".join(["?"] * len(search_filter.instruments))
-            conditions.append(f"instrument IN ({placeholders})")
-            params.extend(search_filter.instruments)
+            inst_clauses = []
+            for inst in search_filter.instruments:
+                if inst == "Other":
+                    inst_clauses.append("(instrument = 'Other' OR instrument IS NULL OR instrument = '')")
+                else:
+                    inst_clauses.append("(instrument LIKE ? OR instrument = ?)")
+                    params.extend([f"%{inst}%", inst])
+            conditions.append("(" + " OR ".join(inst_clauses) + ")")
 
-        # Genres
+        # Genres (supports Other)
         if search_filter.genres:
-            placeholders = ",".join(["?"] * len(search_filter.genres))
-            conditions.append(f"genre IN ({placeholders})")
-            params.extend(search_filter.genres)
+            genre_clauses = []
+            for gen in search_filter.genres:
+                if gen == "Other":
+                    genre_clauses.append("(genre = 'Other' OR genre IS NULL OR genre = '')")
+                else:
+                    genre_clauses.append("genre = ?")
+                    params.append(gen)
+            conditions.append("(" + " OR ".join(genre_clauses) + ")")
 
         # Key Roots
         if search_filter.key_roots:
@@ -255,6 +357,16 @@ class SampleRepository:
         # Favorites Only
         if search_filter.is_favorite_only:
             conditions.append("is_favorite = 1")
+
+        # Unclassified / Other Filters
+        if search_filter.only_unclassified_instrument:
+            conditions.append("(instrument = 'Other' OR instrument IS NULL OR instrument = '')")
+        if search_filter.only_unclassified_genre:
+            conditions.append("(genre = 'Other' OR genre IS NULL OR genre = '')")
+        if search_filter.only_unknown_key:
+            conditions.append("(key_root IS NULL OR key_root = '' OR key_root = 'Other')")
+        if search_filter.only_unknown_bpm:
+            conditions.append("(bpm IS NULL OR bpm = 0)")
 
         # Query text (free text match across file_name, tags, instrument, genre, creator)
         if search_filter.query_text and search_filter.query_text.strip():
@@ -337,3 +449,27 @@ class SampleRepository:
         cursor = conn.execute("SELECT COUNT(*) as count FROM samples;")
         row = cursor.fetchone()
         return row["count"] if row else 0
+
+    def get_all_instruments(self) -> List[str]:
+        """Returns list of all unique individual instrument tags from the database."""
+        conn = self.db_manager.get_connection()
+        cursor = conn.execute("SELECT DISTINCT instrument FROM samples WHERE instrument IS NOT NULL AND instrument != '';")
+        inst_set = set()
+        for row in cursor.fetchall():
+            raw = row["instrument"]
+            for part in raw.split(","):
+                clean = part.strip()
+                if clean:
+                    inst_set.add(clean)
+        return sorted(inst_set)
+
+    def get_all_genres(self) -> List[str]:
+        """Returns list of all unique genre tags from the database."""
+        conn = self.db_manager.get_connection()
+        cursor = conn.execute("SELECT DISTINCT genre FROM samples WHERE genre IS NOT NULL AND genre != '';")
+        genre_set = set()
+        for row in cursor.fetchall():
+            clean = row["genre"].strip()
+            if clean:
+                genre_set.add(clean)
+        return sorted(genre_set)

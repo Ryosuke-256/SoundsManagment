@@ -9,7 +9,8 @@ from typing import Optional, List, Tuple
 class ParsedMetadata:
     """Represents metadata extracted from sound file name and path."""
     sample_type: str = "Oneshot"  # "Loop" | "Oneshot" (No 'Other')
-    instrument: str = "Other"   # e.g. "guitar", "bass", "kick", "Other"
+    instrument: str = "Other"   # e.g. "guitar", "guitar, bass", "Other"
+    instruments: List[str] = field(default_factory=list)  # List of detected instruments
     genre: str = "Other"        # e.g. "SS_Guitar_Snob", "Other"
     bpm: Optional[float] = None
     key_root: Optional[str] = None   # e.g. "C#", "D"
@@ -35,6 +36,8 @@ class FilenameParser:
 
     # Known instruments dictionary
     KNOWN_INSTRUMENTS = {
+        "beat": "beats",
+        "beats": "beats",
         "guitar": "guitar",
         "acoustic_guitar": "guitar",
         "electric_guitar": "guitar",
@@ -194,19 +197,28 @@ class FilenameParser:
                     result.key_root = k_root
                     result.key_scale = k_scale
 
-        # 4. Extract Instrument (Prioritize standalone token matches)
-        for token in reversed(tokens):
+        # 4. Extract Instruments (Collect all unique matching instruments)
+        detected_instruments = []
+        for token in tokens:
             t_lower = token.lower()
             if t_lower in cls.KNOWN_INSTRUMENTS:
-                result.instrument = cls.KNOWN_INSTRUMENTS[t_lower]
-                break
+                mapped = cls.KNOWN_INSTRUMENTS[t_lower]
+                if mapped not in detected_instruments:
+                    detected_instruments.append(mapped)
 
-        if result.instrument == "Other":
+        if not detected_instruments:
             stem_lower = stem.lower()
             for key_inst, mapped_inst in cls.KNOWN_INSTRUMENTS.items():
                 if re.search(rf'(?:^|[_ -]){re.escape(key_inst)}(?:[_ -]|$)', stem_lower):
-                    result.instrument = mapped_inst
-                    break
+                    if mapped_inst not in detected_instruments:
+                        detected_instruments.append(mapped_inst)
+
+        if detected_instruments:
+            result.instruments = detected_instruments
+            result.instrument = ", ".join(detected_instruments)
+        else:
+            result.instruments = []
+            result.instrument = "Other"
 
         # 5. Extract Creator (Check from end of tokens first for trailing label tags like _BANDLAB)
         for token in reversed(tokens):

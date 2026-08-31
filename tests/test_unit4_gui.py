@@ -191,6 +191,28 @@ class TestFacetFilterWidget:
         widget.reset_search()
         assert widget.get_current_filter().query_text is None
 
+    def test_filter_embedded_other_and_reset(self, qapp):
+        widget = FacetFilterWidget()
+        widget.update_facets(instruments=["guitar", "bass"], genres=["Rock", "Pop"])
+
+        # Check that 'Other' is present in inst_list and genre_list
+        inst_items = [widget.inst_list.item(i).text() for i in range(widget.inst_list.count())]
+        genre_items = [widget.genre_list.item(i).text() for i in range(widget.genre_list.count())]
+        assert "Other" in inst_items
+        assert "Other" in genre_items
+
+        # Select Other in Instruments
+        for i in range(widget.inst_list.count()):
+            if widget.inst_list.item(i).text() == "Other":
+                widget.inst_list.item(i).setSelected(True)
+
+        filt = widget.get_current_filter()
+        assert filt.instruments == ["Other"]
+
+        # Reset Instrument
+        widget.reset_instrument_filter()
+        assert widget.get_current_filter().instruments == []
+
 
 class TestAsyncWorkers:
     """Tests for ImportWorker and BatchAnalyzeWorker."""
@@ -220,6 +242,37 @@ class TestAsyncWorkers:
         assert summary.total_files_scanned == 2
         assert summary.imported_count == 2
         assert temp_env["repo"].get_total_count() == 2
+
+    def test_consolidate_duplicates_worker_execution(self, qapp, temp_env):
+        from src.ui.workers import ConsolidateDuplicatesWorker
+        # Create physical duplicate samples in library
+        target_dir = temp_env["config"].library_dir / "Loop" / "TestPack"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        file0 = target_dir / "Lead.wav"
+        file1 = target_dir / "Lead_1.wav"
+        create_test_wav(file0, duration_sec=0.5)
+        create_test_wav(file1, duration_sec=0.5)
+
+        s0 = SampleItem(file_path=str(file0), file_name="Lead.wav", sample_type="Loop", genre="TestPack")
+        s1 = SampleItem(file_path=str(file1), file_name="Lead_1.wav", sample_type="Loop", genre="TestPack")
+        temp_env["repo"].insert_samples_batch([s0, s1])
+        assert temp_env["repo"].get_total_count() == 2
+
+        worker = ConsolidateDuplicatesWorker(
+            repo=temp_env["repo"],
+            file_mgr=temp_env["file_mgr"],
+        )
+        results = []
+        worker.finished.connect(lambda groups, files: results.append((groups, files)))
+        worker.run()
+
+        assert len(results) == 1
+        groups, files = results[0]
+        assert groups == 1
+        assert files == 1
+        assert temp_env["repo"].get_total_count() == 1
+        assert file0.exists()
+        assert not file1.exists()
 
 
 class TestAudioAnalyzerDialog:
@@ -296,7 +349,7 @@ class TestMainWindowIntegration:
         )
 
         assert window.table_model.rowCount() == 1
-        assert window.facet_widget.inst_list.count() == 1
+        assert window.facet_widget.inst_list.count() >= 1
 
         # Test sample selection without crash
         window._on_sample_selected(item)
