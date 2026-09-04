@@ -280,6 +280,17 @@ class TestUnit1Database(unittest.TestCase):
         self.assertEqual(len(group["all_samples"]), 3)
         self.assertEqual(len(group["obsolete_samples"]), 2)
 
+    def test_clear_all_samples(self):
+        """Verify that clear_all_samples purges all records in the database."""
+        s0 = SampleItem(file_path="C:/Sounds/Lead.wav", file_name="Lead.wav", sample_type="Loop")
+        s1 = SampleItem(file_path="C:/Sounds/Kick.wav", file_name="Kick.wav", sample_type="Oneshot")
+        self.repository.insert_samples_batch([s0, s1])
+        self.assertEqual(self.repository.get_total_count(), 2)
+
+        deleted = self.repository.clear_all_samples()
+        self.assertEqual(deleted, 2)
+        self.assertEqual(self.repository.get_total_count(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

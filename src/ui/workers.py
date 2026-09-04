@@ -66,6 +66,8 @@ class ImportWorker(QThread):
 
         imported_records: List[SampleItem] = []
 
+        pack_name = src_path.name
+
         # 2. Process and import each file
         for idx, file_p in enumerate(audio_files, start=1):
             if self._is_cancelled:
@@ -74,8 +76,8 @@ class ImportWorker(QThread):
             self.progress.emit(idx, summary.total_files_scanned, file_p.name)
 
             try:
-                # Parse metadata from filename
-                parsed = self.parser.parse_filename(file_p.name)
+                # Parse metadata from filename with folder name fallback
+                parsed = self.parser.parse_filename(file_p.name, default_pack=pack_name)
 
                 # Copy/Move file to managed hierarchy with overwrite mode
                 final_path, final_name, file_size, file_hash = self.file_mgr.import_single_file(

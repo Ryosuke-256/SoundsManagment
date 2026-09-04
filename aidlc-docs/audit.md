@@ -338,10 +338,10 @@ Loopフォルダ及びOneshotフォルダに例が入っています。
 複数の楽器を登録している場合があるので、一つの音源に対して複数の楽器をタグ付けできるようにできますか？
 また、beatsもまた楽器に分類してください。
 ## Feature Implementation - Approval Received
-**Timestamp**: 2026-08-31T21:24:07+09:00
-**User Input**: "承認しました。進めてください"
-**AI Response**: "Plan approved. Proceeding to implement overwrite import policy in file manager and database upsert, along with the duplicate sample consolidation and cleanup tool."
-**Context**: CONSTRUCTION - Overwrite Policy & Duplicate Consolidation Implementation
+**Timestamp**: 2026-09-04T21:35:15+09:00
+**User Input**: "進めてください"
+**AI Response**: "Plan approved. Proceeding to implement strict top-level folder name rule for Packs/Creator and 'Other' fallback for individual files."
+**Context**: CONSTRUCTION - Strict Top-Level Folder Rule Implementation
 
 ---
 

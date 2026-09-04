@@ -225,3 +225,37 @@ class LibraryFileManager:
                     p.unlink()
             except OSError:
                 pass
+
+    def clear_all_library_files(self, use_recycle_bin: bool = True) -> int:
+        """Removes all audio files in the managed library folders (Loop, Oneshot, Other, Imports).
+        
+        Safely sends files to the Windows Recycle Bin by default, then re-ensures clean directory hierarchy.
+        
+        Returns:
+            int: Total number of files deleted.
+        """
+        deleted_count = 0
+        search_dirs = [
+            self.config.library_dir / "Loop",
+            self.config.library_dir / "Oneshot",
+            self.config.library_dir / "Other",
+            self.config.imports_dir,
+        ]
+        for s_dir in search_dirs:
+            if s_dir.exists():
+                for root, _, files in os.walk(str(s_dir), topdown=False):
+                    for file in files:
+                        fp = os.path.join(root, file)
+                        if self.delete_physical_file(fp, use_recycle_bin=use_recycle_bin):
+                            deleted_count += 1
+                    # Remove empty subdirectories
+                    if root != str(s_dir):
+                        try:
+                            os.rmdir(root)
+                        except OSError:
+                            pass
+
+        # Re-ensure base folder hierarchy exists
+        self.setup_library_hierarchy()
+        return deleted_count
+

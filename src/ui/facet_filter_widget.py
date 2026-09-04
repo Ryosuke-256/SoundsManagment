@@ -140,12 +140,12 @@ class FacetFilterWidget(QWidget):
         inst_vbox.addWidget(self.inst_list)
         self.content_layout.addWidget(inst_section)
 
-        # 5. Genre / Pack Facet (Includes 'Other' in list)
+        # 5. Pack / Creator Facet (Includes 'Other' in list)
         genre_section = QWidget()
         genre_vbox = QVBoxLayout(genre_section)
         genre_vbox.setContentsMargins(0, 0, 0, 0)
         genre_vbox.setSpacing(3)
-        genre_header = self._create_section_header("Genres / Packs", self.reset_genre_filter)
+        genre_header = self._create_section_header("Packs / Creator", self.reset_genre_filter)
         genre_vbox.addWidget(genre_header)
 
         self.genre_list = QListWidget()
@@ -272,11 +272,15 @@ class FacetFilterWidget(QWidget):
         self._emit_filter()
 
     def reset_genre_filter(self):
-        """Resets Genre filter selection."""
+        """Resets Pack / Genre filter selection."""
         self.genre_list.blockSignals(True)
         self.genre_list.clearSelection()
         self.genre_list.blockSignals(False)
         self._emit_filter()
+
+    def reset_pack_filter(self):
+        """Resets Pack / Creator filter selection (alias)."""
+        self.reset_genre_filter()
 
     def reset_filters(self):
         """Clears all search inputs and tag selections."""

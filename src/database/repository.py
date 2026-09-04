@@ -269,6 +269,13 @@ class SampleRepository:
             cursor = conn.execute(sql, tuple(sample_ids))
             return cursor.rowcount
 
+    def clear_all_samples(self) -> int:
+        """Deletes all sample records from the database in a single transaction."""
+        sql = "DELETE FROM samples;"
+        with self.db_manager.transaction() as conn:
+            cursor = conn.execute(sql)
+            return cursor.rowcount
+
     def get_sample_by_id(self, sample_id: int) -> Optional[SampleItem]:
         """Retrieves a single sample record by ID."""
         sql = "SELECT * FROM samples WHERE id = ?;"

@@ -367,4 +367,39 @@ class TestMainWindowIntegration:
         window._on_filter_changed(filt_none)
         assert window.table_model.rowCount() == 0
 
+        # Verify Pack / Creator column header
+        assert window.table_model.headerData(3, Qt.Orientation.Horizontal) == "Pack / Creator"
+
+        window.close()
+
+    def test_clear_all_library_action(self, qapp, temp_env, monkeypatch):
+        from PyQt6.QtWidgets import QMessageBox
+        # Insert sample
+        sample_path = temp_env["config"].library_dir / "Loop" / "Guitar_120BPM_C.wav"
+        create_test_wav(sample_path, duration_sec=1.0)
+        item = SampleItem(
+            file_path=str(sample_path),
+            file_name="Guitar_120BPM_C.wav",
+            sample_type="Loop",
+        )
+        temp_env["repo"].insert_sample(item)
+        assert temp_env["repo"].get_total_count() == 1
+
+        window = MainWindow(
+            config=temp_env["config"],
+            repo=temp_env["repo"],
+            file_mgr=temp_env["file_mgr"],
+            player_service=AudioPlayerService(headless=True),
+        )
+
+        # Mock QMessageBox to accept confirmation
+        monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
+        monkeypatch.setattr(QMessageBox, "critical", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
+        monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: None)
+
+        window.action_clear_all_library()
+
+        assert temp_env["repo"].get_total_count() == 0
+        assert window.table_model.rowCount() == 0
+        assert not sample_path.exists()
         window.close()

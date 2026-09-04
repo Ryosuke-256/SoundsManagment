@@ -10,7 +10,7 @@ class TestUnit2Parser(unittest.TestCase):
     def test_bandlab_loop_filename_parsing(self):
         """Verify parsing of BandLab loop file with BPM, Key, genre, instrument, and creator."""
         filename = "03_SS_Guitar_Snob_174_4_bar_Loop_C#_guitar_174BPM_C♯minor_BANDLAB.wav"
-        metadata = FilenameParser.parse_filename(filename)
+        metadata = FilenameParser.parse_filename(filename, default_pack="SS_Guitar_Snob")
 
         self.assertEqual(metadata.sample_type, "Loop")
         self.assertEqual(metadata.instrument, "guitar")
@@ -23,10 +23,11 @@ class TestUnit2Parser(unittest.TestCase):
     def test_bandlab_oneshot_filename_parsing(self):
         """Verify parsing of BandLab oneshot drum sample."""
         filename = "01_HEAVEE_kick_oneshot_BANDLAB.wav"
-        metadata = FilenameParser.parse_filename(filename)
+        metadata = FilenameParser.parse_filename(filename, default_pack="HEAVEE")
 
         self.assertEqual(metadata.sample_type, "Oneshot")
         self.assertEqual(metadata.instrument, "kick")
+        self.assertEqual(metadata.genre, "HEAVEE")
         self.assertEqual(metadata.creator, "BANDLAB")
         self.assertIsNone(metadata.bpm)
 
@@ -106,6 +107,27 @@ class TestUnit2Parser(unittest.TestCase):
 
         # Performance requirement: 1,000 files < 50ms
         self.assertLess(elapsed_ms, 50.0)
+
+    def test_default_pack_and_creator_extraction(self):
+        """Verify that default_pack assigns parent folder name and auto-detects creator."""
+        # 1. File inside [BANDLAB] folder -> genre is strictly [BANDLAB]
+        fn1 = "03_guitar_174BPM.wav"
+        meta1 = FilenameParser.parse_filename(fn1, default_pack="[BANDLAB]")
+        self.assertEqual(meta1.sample_type, "Loop")
+        self.assertEqual(meta1.instrument, "guitar")
+        self.assertEqual(meta1.genre, "[BANDLAB]")
+        self.assertEqual(meta1.creator, "BANDLAB")
+
+        # 2. File loaded as single file without parent folder -> genre is strictly Other
+        fn2 = "03_guitar_174BPM.wav"
+        meta2 = FilenameParser.parse_filename(fn2, default_pack=None)
+        self.assertEqual(meta2.genre, "Other")
+
+        # 3. File in custom pack folder -> genre is strictly folder name
+        fn3 = "kick_punch_heavy.wav"
+        meta3 = FilenameParser.parse_filename(fn3, default_pack="BandLab_Lofi_Beats")
+        self.assertEqual(meta3.genre, "BandLab_Lofi_Beats")
+        self.assertEqual(meta3.creator, "BANDLAB")
 
 
 if __name__ == "__main__":

@@ -172,6 +172,29 @@ class TestUnit1Storage(unittest.TestCase):
         self.assertFalse(os.path.exists(dest1))
         self.assertFalse(os.path.exists(dest2))
 
+    def test_clear_all_library_files(self):
+        """Verify that clear_all_library_files purges all audio files and resets folders."""
+        dest1, _, _, _ = self.file_manager.import_single_file(
+            src_path=str(self.sample_file),
+            sample_type="Loop",
+            genre="Jazz",
+            instrument="piano",
+        )
+        dest2, _, _, _ = self.file_manager.import_single_file(
+            src_path=str(self.sample_file),
+            sample_type="Oneshot",
+            instrument="kick",
+        )
+        self.assertTrue(os.path.exists(dest1))
+        self.assertTrue(os.path.exists(dest2))
+
+        deleted = self.file_manager.clear_all_library_files(use_recycle_bin=False)
+        self.assertEqual(deleted, 2)
+        self.assertFalse(os.path.exists(dest1))
+        self.assertFalse(os.path.exists(dest2))
+        self.assertTrue((self.config.library_dir / "Loop").exists())
+        self.assertTrue((self.config.library_dir / "Oneshot").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

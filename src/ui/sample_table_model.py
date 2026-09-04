@@ -19,7 +19,7 @@ class SampleTableModel(QAbstractTableModel):
         "Name",
         "Type",
         "Instrument",
-        "Genre",
+        "Pack / Creator",
         "BPM",
         "Key",
         "Creator",

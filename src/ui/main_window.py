@@ -205,6 +205,12 @@ class MainWindow(QMainWindow):
         consolidate_act.triggered.connect(self.action_consolidate_duplicates)
         tools_menu.addAction(consolidate_act)
 
+        tools_menu.addSeparator()
+
+        clear_all_act = QAction("🗑️ &Clear All Library Data (Reset Library)...", self)
+        clear_all_act.triggered.connect(self.action_clear_all_library)
+        tools_menu.addAction(clear_all_act)
+
         backup_act = QAction("💾 &Backup Database Snapshot...", self)
         backup_act.triggered.connect(self.action_backup_database)
         tools_menu.addAction(backup_act)
@@ -225,6 +231,8 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(analyzer_act)
         toolbar.addAction(consolidate_act)
+        toolbar.addSeparator()
+        toolbar.addAction(clear_all_act)
 
     def _setup_signals(self):
         # Facet filter changes
@@ -492,6 +500,56 @@ class MainWindow(QMainWindow):
             f"重複ファイルの統合が完了しました！\n\n"
             f"• 統合されたグループ: {groups_consolidated} 組\n"
             f"• 整理された古いファイル: {files_cleaned} 個（ごみ箱へ移動済み）",
+        )
+
+    def action_clear_all_library(self):
+        """Purges all sound samples and database records with 2-step safety confirmation."""
+        total_count = self.repo.get_total_count()
+
+        # Step 1 Warning Confirmation
+        reply1 = QMessageBox.warning(
+            self,
+            "Clear All Library Data",
+            f"【警告: ライブラリの全消去】\n\n"
+            f"登録されているすべての音源（計 {total_count} 件）およびデータベースを初期化しますか？\n\n"
+            f"※音源ファイル実体は Windows の「ごみ箱」へ安全に移動されます。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply1 != QMessageBox.StandardButton.Yes:
+            return
+
+        # Step 2 Final Confirmation
+        reply2 = QMessageBox.critical(
+            self,
+            "Confirm Complete Reset",
+            "【最終確認】\n\n"
+            "この操作を実行すると、ライブラリ内のすべての登録データが消去され、0 件の空の状態になります。\n\n"
+            "本当に実行して初期化しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply2 != QMessageBox.StandardButton.Yes:
+            return
+
+        # Stop audio playback
+        self.player.stop()
+
+        # Purge files and database records
+        deleted_files = self.file_mgr.clear_all_library_files(use_recycle_bin=True)
+        deleted_records = self.repo.clear_all_samples()
+
+        # Reset UI
+        self._refresh_data()
+        self.waveform_widget.set_waveform_data(None)
+        self.time_label.setText("00:00 / 00:00")
+
+        QMessageBox.information(
+            self,
+            "Library Cleared",
+            f"ライブラリの初期化が完了しました。\n\n"
+            f"• 初期化されたDBレコード: {deleted_records} 件\n"
+            f"• ごみ箱へ移動した音源ファイル: {deleted_files} 個",
         )
 
     def action_backup_database(self):

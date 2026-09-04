@@ -133,7 +133,11 @@ class FilenameParser:
         return key_root, key_scale
 
     @classmethod
-    def parse_filename(cls, file_path_or_name: str) -> ParsedMetadata:
+    def parse_filename(
+        cls,
+        file_path_or_name: str,
+        default_pack: Optional[str] = None,
+    ) -> ParsedMetadata:
         """Parses a sound sample file path or file name into a structured ParsedMetadata entity."""
         if not file_path_or_name or not isinstance(file_path_or_name, str):
             return ParsedMetadata()
@@ -227,30 +231,22 @@ class FilenameParser:
                 result.creator = cls.KNOWN_CREATORS[token_upper]
                 break
 
-        # 6. Extract Genre / Pack name
-        if len(tokens) >= 2 and tokens[0].isdigit():
-            # Track number prefix detected: e.g. "03_SS_Guitar_Snob_174_4_bar_Loop_..."
-            pack_tokens = []
-            for t in tokens[1:]:
-                # Stop when hitting BPM digits, bar length, or explicit type token
-                if t.isdigit() or t.lower() in ("loop", "loops", "oneshot", "shot", "bar", "bars") or t.upper().endswith("BPM"):
-                    break
-                pack_tokens.append(t)
-            if pack_tokens:
-                result.genre = "_".join(pack_tokens)
-        else:
-            # Check if there are other recognized properties indicating a structured sample filename
-            has_structured_tags = (
-                result.bpm is not None or
-                result.key_root is not None or
-                result.creator != "Other" or
-                result.instrument != "Other" or
-                any(t in ("loop", "loops", "oneshot", "one-shot", "shot", "shots", "hit", "hits") for t in token_lowers)
-            )
-            if has_structured_tags and len(tokens) >= 1:
-                if tokens[0].upper() not in cls.KNOWN_CREATORS and tokens[0].lower() not in cls.KNOWN_INSTRUMENTS and not tokens[0].upper().endswith("BPM"):
-                    result.genre = tokens[0]
+        # 6. Assign Pack / Creator strictly from the top-level parent folder name
+        if default_pack and default_pack.strip():
+            clean_dp = default_pack.strip()
+            if clean_dp not in ("Loop", "Oneshot", "Other"):
+                result.genre = clean_dp
+                # If creator is still Other, check if parent folder name contains known creators
+                if result.creator == "Other":
+                    dp_upper = clean_dp.upper()
+                    for creator_key, creator_val in cls.KNOWN_CREATORS.items():
+                        if creator_key in dp_upper:
+                            result.creator = creator_val
+                            break
             else:
                 result.genre = "Other"
+        else:
+            # Single file or no parent pack folder -> strictly Other
+            result.genre = "Other"
 
         return result
